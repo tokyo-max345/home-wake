@@ -1,0 +1,40 @@
+name: watch-desktop
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: watch-desktop
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: watch
+        env:
+          DESKTOP_LAST_SEEN: ${{ vars.DESKTOP_LAST_SEEN }}
+          WAKE_ENABLED: ${{ vars.WAKE_ENABLED }}
+          HOME_HOST: ${{ secrets.HOME_HOST }}
+          WAKE_PORT: ${{ secrets.WAKE_PORT }}
+          DESKTOP_MAC: ${{ secrets.DESKTOP_MAC }}
+          NOTIFY_LINE_TOKEN: ${{ secrets.NOTIFY_LINE_TOKEN }}
+          NOTIFY_LINE_TO: ${{ secrets.NOTIFY_LINE_TO }}
+        run: python3 scripts/watch.py
+      - name: save state (only when changed)
+        run: |
+          # git diff は新規ファイルを見落とす → status --porcelain で判定
+          if [ -n "$(git status --porcelain state.json)" ]; then
+            git config user.name "home-wake-bot"
+            git config user.email "home-wake-bot@users.noreply.github.com"
+            git add state.json
+            git commit -m "state: $(python3 -c 'import json;print(json.load(open("state.json"))["status"])')"
+            for i in 1 2 3; do git pull --rebase -q && git push -q && break; sleep 3; done
+          fi
