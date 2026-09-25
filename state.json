@@ -1,5 +1,7 @@
 {
- "status": "up",
- "since": 1790125779,
- "updated": 1790125779
+ "status": "down",
+ "since": 1790296492,
+ "last_seen": 1790294048,
+ "still_notified": false,
+ "updated": 1790296492
 }
