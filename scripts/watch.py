@@ -92,7 +92,8 @@ def check_outreach(state, now):
     status, why = judge_outreach(env("OUTREACH_SEEN", False), now)
     print(f"営業ロボ: {status} {why}")
     if status == "unknown":
-        return
+        # 監視データが無い・壊れている＝監視そのものが効いていない。黙って見逃さず異常として扱う
+        status, why = "down", f"営業ロボの監視データが読めません（{why}）。送信PCの home-wake-heartbeat を確認"
     prev = state.get("outreach", "ok")
     if status != "ok" and prev == "ok":
         state["outreach"] = status

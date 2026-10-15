@@ -92,6 +92,14 @@ class CheckOutreachTransitions(unittest.TestCase):
         self.assertIn("復帰", self.sent[1])
         json.dumps(st)  # state.json に保存できる
 
+    def test_missing_or_broken_seen_is_alerted_not_ignored(self):
+        now = ts(2026, 10, 16, 11)
+        st = {"status": "up", "since": 0}
+        self.run_with("", now, st)
+        self.assertEqual(st["outreach"], "down")
+        self.assertTrue(os.path.exists(watch.ALERT_FLAG))
+        self.assertIn("監視データが読めません", self.sent[0])
+
     def test_line_failure_still_raises_flag_and_saves_state(self):
         def boom(_):
             raise RuntimeError("LINE 429")
