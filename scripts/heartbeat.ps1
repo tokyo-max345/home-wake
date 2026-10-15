@@ -18,6 +18,23 @@ try {
   if ($LASTEXITCODE -ne 0) { throw "variable set failed: $out" }
 } catch { Log "ERROR heartbeat: $_"; exit 1 }
 
+# 3) outreach-engine (sales mail robot) send health -> repo variable OUTREACH_SEEN (added 2026-10-16)
+#    "<unix now>|<last sent unix or 0>|<stalled 0/1>|<sent today>|<live drafts>"
+#    Not updated when the crawler is unreachable, so its age grows and watch.py reports it.
+#    Windows can be alive while WSL / docker / the robot is dead; the heartbeat above cannot see that.
+try {
+  $h = Invoke-RestMethod -Uri 'http://127.0.0.1:8080/health/sends' -TimeoutSec 15
+  if (-not $h.ok) { throw "health/sends not ok" }
+  $s = $h.sends
+  $last = 0
+  if ($s.last_sent_at) { $last = [DateTimeOffset]::Parse($s.last_sent_at).ToUnixTimeSeconds() }
+  $stalled = if ($s.stalled) { 1 } else { 0 }
+  $now2 = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+  $val = "$now2|$last|$stalled|$([int]$s.sent_today)|$([int]$s.live_drafts)"
+  $out = & $gh variable set OUTREACH_SEEN --body $val -R $repo 2>&1
+  if ($LASTEXITCODE -ne 0) { throw "variable set failed: $out" }
+} catch { Log "ERROR outreach: $_" }
+
 try {
   $ip = (Invoke-WebRequest -UseBasicParsing https://api.ipify.org -TimeoutSec 15).Content.Trim()
   if ($ip -notmatch '^\d{1,3}(\.\d{1,3}){3}$') { throw "unexpected ip response: $ip" }

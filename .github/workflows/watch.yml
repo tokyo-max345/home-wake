@@ -22,6 +22,7 @@ jobs:
         env:
           DESKTOP_LAST_SEEN: ${{ vars.DESKTOP_LAST_SEEN }}
           WAKE_ENABLED: ${{ vars.WAKE_ENABLED }}
+          OUTREACH_SEEN: ${{ vars.OUTREACH_SEEN }}
           HOME_HOST: ${{ secrets.HOME_HOST }}
           WAKE_PORT: ${{ secrets.WAKE_PORT }}
           DESKTOP_MAC: ${{ secrets.DESKTOP_MAC }}
@@ -38,3 +39,6 @@ jobs:
             git commit -m "state: $(python3 -c 'import json;print(json.load(open("state.json"))["status"])')"
             for i in 1 2 3; do git pull --rebase -q && git push -q && break; sleep 3; done
           fi
+      - name: fail on new outreach alert (GitHub emails the failure = channel independent of LINE)
+        run: |
+          if [ -f alert.flag ]; then echo "::error::$(cat alert.flag)"; exit 1; fi

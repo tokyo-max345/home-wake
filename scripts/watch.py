@@ -60,6 +60,59 @@ def line(text):
         raise
 
 
+OUTREACH_DOWN_AFTER = 2 * 60 * 60  # 営業ロボの応答が途絶えて「止まっている」とみなすまで
+ALERT_FLAG = "alert.flag"          # 新しく異常になった回だけ作る → 最後のステップがジョブを赤くする（GitHub の失敗メール）
+
+
+def judge_outreach(seen, now):
+    """営業ロボ（outreach-engine）の状態を返す: ("ok"|"down"|"stall"|"unknown", 説明)。
+
+    seen = repo variable OUTREACH_SEEN "<確認時刻>|<最終送信>|<停止判定0/1>|<今日の送信数>|<送信待ち>"
+    デスクトップ（Windows）が生きていても、WSL・Docker・ロボ本体が死んでいる／送信が止まっている状態は
+    心拍だけでは見えない（09-18〜24 WSL 破損で5.5日、09-29〜10-14 設定の文字化けで16日、誰も気づかなかった）。
+    """
+    if not seen:
+        return "unknown", "OUTREACH_SEEN がまだ無い"
+    parts = seen.split("|")
+    if len(parts) != 5 or not all(p.lstrip("-").isdigit() for p in parts):
+        return "unknown", f"OUTREACH_SEEN の形式が不正: {seen[:60]}"
+    seen_at, last_sent, stalled, sent_today, live = (int(p) for p in parts)
+    if now - seen_at > OUTREACH_DOWN_AFTER:
+        return "down", f"営業ロボが {hhmm(seen_at)} から応答しません（PCは起動中）"
+    if stalled:
+        last = hhmm(last_sent) if last_sent else "なし"
+        return "stall", f"営業メールの自動送信が止まっています（最後の送信 {last}・送信待ち {live}件）"
+    jst = datetime.fromtimestamp(now, JST)
+    if jst.weekday() < 5 and jst.hour >= 15 and sent_today == 0 and live > 0:
+        return "stall", f"平日15時を過ぎても今日の送信が0通です（送信待ち {live}件）"
+    return "ok", ""
+
+
+def check_outreach(state, now):
+    status, why = judge_outreach(env("OUTREACH_SEEN", False), now)
+    print(f"営業ロボ: {status} {why}")
+    if status == "unknown":
+        return
+    prev = state.get("outreach", "ok")
+    if status != "ok" and prev == "ok":
+        state["outreach"] = status
+        state["outreach_since"] = now
+        # 先に旗を立てる: LINE が枠切れ(429)でも GitHub の失敗メールで必ず届く
+        with open(ALERT_FLAG, "w", encoding="utf-8") as f:
+            f.write(why + "\n")
+        try:
+            line(f"🔴 {why}\n→ 送信PCで docker と crawler のログを確認してください。")
+        except Exception as e:  # noqa: BLE001 — 本文は line() が ::error で出している。状態は保存して二重通知しない
+            print(f"::warning::LINE 通知失敗（GitHub の失敗メールで代替）: {e}")
+    elif status == "ok" and prev != "ok":
+        mins = (now - state.get("outreach_since", now)) // 60
+        state["outreach"] = "ok"
+        state.pop("outreach_since", None)
+        line(f"✅ 営業ロボが復帰しました（異常だった時間 約{mins}分）。")
+    elif status != "ok" and status != prev:
+        state["outreach"] = status  # down⇔stall の切替は記録だけ（通知は最初の1回）
+
+
 def main():
     now = int(time.time())
     if env("WAKE_ENABLED", False).lower() == "false":
@@ -94,6 +147,9 @@ def main():
         mins = (now - state.get("last_seen", state["since"])) // 60
         state = {"status": "up", "since": now}
         line(f"✅ デスクトップが復帰しました（止まっていた時間 約{mins}分）。")
+
+    if not down:
+        check_outreach(state, now)
 
     if json.dumps(state, sort_keys=True) != before:
         state["updated"] = now
