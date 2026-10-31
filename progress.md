@@ -3,7 +3,7 @@
 ## セッションログ（2026-09-24 nightos/progress.md から移設・新しい順）
 
 ### 2026-10-31 [二日酔いラボ note の公開停止も外から見張る（alcoburner の note 日次配信再開に合わせて）] 完了 ✅ 検証commit:4a7880e 実測:run 41154004823「note: ok」
-- watch.py に check_note: note 公開API（futsukayoi_com の最新 publishAt）が30時間より古い／取得失敗6回連続 → LINE＋ジョブ赤。状態遷移時だけ・復帰で ✅。PC停止/復帰で state を作り直しても note* キーを引き継ぐ（Codex 指摘）。止める＝repo variable `NOTE_WATCH=false`
+- watch.py に check_note: note 公開API（futsukayoi_com の最新 publishAt）が30時間より古い／取得失敗6回連続 → LINE＋ジョブ赤。状態遷移時だけ・復帰で ✅。PC停止/復帰で state を作り直しても note* キーを引き継ぐ（Codex 指摘）。止める＝repo variable `NOTE_WATCH=false` 検証commit:4a7880e
 - 配信本体はサブPC タスク `futsukayoi-note-daily`（alcoburner `ops/subpc/futsukayoi-note/`）。サブPCごと止まっても・ログインが切れても・記事が尽きても note に出なくなる＝note だけ見れば全部拾える
 - tests/test_watch_note.py 7件（変更前の watch.py では7件とも赤）・test_watch_outreach.py 9件も緑
 - 観測: 同じ run で営業ロボが `down`（10/30 03:09 から応答なし）。今回の対象外
