@@ -33,11 +33,14 @@ class CheckNote(unittest.TestCase):
         os.chdir(self.dir)
         self.sent = []
         self.orig_line = watch.line
+        self.orig_env = dict(os.environ)
         watch.line = lambda t: self.sent.append(t)
         os.environ.pop("NOTE_WATCH", None)
 
     def tearDown(self):
         watch.line = self.orig_line
+        os.environ.clear()
+        os.environ.update(self.orig_env)   # test_disabled の NOTE_WATCH=false を後のテストに漏らさない
         os.chdir(self.cwd)
 
     def run_check(self, state, fetch):
@@ -73,7 +76,6 @@ class CheckNote(unittest.TestCase):
         s = {}
         self.assertFalse(self.run_check(s, lambda u: None))
         self.assertEqual(s, {})
-
 
 class MainKeepsNoteState(unittest.TestCase):
     """PC停止→復帰で state を作り直しても note の状態が残り、同じ停止を二重通知しない。"""
