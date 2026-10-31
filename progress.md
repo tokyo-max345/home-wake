@@ -2,6 +2,12 @@
 
 ## セッションログ（2026-09-24 nightos/progress.md から移設・新しい順）
 
+### 2026-10-31 [二日酔いラボ note の公開停止も外から見張る（alcoburner の note 日次配信再開に合わせて）] 完了 ✅ 検証commit:4a7880e 実測:run 41154004823「note: ok」
+- watch.py に check_note: note 公開API（futsukayoi_com の最新 publishAt）が30時間より古い／取得失敗6回連続 → LINE＋ジョブ赤。状態遷移時だけ・復帰で ✅。PC停止/復帰で state を作り直しても note* キーを引き継ぐ（Codex 指摘）。止める＝repo variable `NOTE_WATCH=false`
+- 配信本体はサブPC タスク `futsukayoi-note-daily`（alcoburner `ops/subpc/futsukayoi-note/`）。サブPCごと止まっても・ログインが切れても・記事が尽きても note に出なくなる＝note だけ見れば全部拾える
+- tests/test_watch_note.py 7件（変更前の watch.py では7件とも赤）・test_watch_outreach.py 9件も緑
+- 観測: 同じ run で営業ロボが `down`（10/30 03:09 から応答なし）。今回の対象外
+
 ### 2026-10-16 [営業ロボ(outreach-engine)の送信状況も外から見張る] 完了 ✅ 検証commit:3027672+a90ed00 実測:run 38794101847「営業ロボ: ok」・repo variable OUTREACH_SEEN 更新
 - heartbeat.ps1 が5分毎に送信PCの `http://127.0.0.1:8080/health/sends` を読み `OUTREACH_SEEN` へ（サブPC `C:\Users\info\jobs\home-wake\heartbeat.ps1` に配置・旧版は `.bak-20261016`・md5 一致を確認）
 - watch.py: Windows は起きているのに「2時間応答なし／停止判定／平日15時以降0通／監視データ欠落」→ LINE＋ジョブ赤（GitHub の失敗メール）。状態遷移時だけ1回・復帰で1回。tests/test_watch_outreach.py 9件
