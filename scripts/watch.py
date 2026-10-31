@@ -114,6 +114,62 @@ def check_outreach(state, now):
         state["outreach"] = status  # down⇔stall の切替は記録だけ（通知は最初の1回）
 
 
+NOTE_USER = "futsukayoi_com"     # 二日酔いラボの note（サブPCの futsukayoi-note-daily が1日1本公開）
+NOTE_STALE_AFTER = 30 * 60 * 60  # 毎日19:00＋最大60分の揺らぎ。1回の取りこぼしは許し、2回目で鳴らす手前
+NOTE_ERR_ALERT = 6               # 取得失敗がこの回数（=約30分）続いたら監視が効いていないとして鳴らす
+
+
+def note_latest_publish(user):
+    """note の最新公開時刻（UNIX秒）。公開記事が無ければ None。取得失敗は例外。"""
+    req = urllib.request.Request(f"https://note.com/api/v2/creators/{user}/contents?kind=note&page=1",
+                                 headers={"User-Agent": "home-wake-watch/1.0"})
+    with urllib.request.urlopen(req, timeout=15) as r:
+        contents = json.load(r)["data"]["contents"]
+    times = [datetime.fromisoformat(c["publishAt"]).timestamp() for c in contents
+             if c.get("status") == "published" and c.get("publishAt")]
+    return int(max(times)) if times else None
+
+
+def judge_note(latest, now):
+    """("ok"|"stall", 説明)。サブPCが落ちても・ログインが切れても・記事が尽きても、note に出ていなければ stall。"""
+    if latest is None:
+        return "stall", f"note（{NOTE_USER}）に公開記事がありません"
+    if now - latest > NOTE_STALE_AFTER:
+        return "stall", f"note（二日酔いラボ）の最後の公開が {hhmm(latest)} で止まっています"
+    return "ok", ""
+
+
+def check_note(state, now, fetch=note_latest_publish):
+    if env("NOTE_WATCH", False).lower() == "false":
+        return
+    try:
+        latest = fetch(NOTE_USER)
+        state.pop("note_err", None)
+        status, why = judge_note(latest, now)
+    except Exception as e:  # noqa: BLE001 — 一時的な失敗では鳴らさない。続いたら監視の故障として鳴らす
+        state["note_err"] = state.get("note_err", 0) + 1
+        print(f"::warning::note の取得に失敗（{state['note_err']}回目）: {e}")
+        if state["note_err"] < NOTE_ERR_ALERT:
+            return
+        status, why = "stall", f"note の公開状況を {state['note_err']} 回続けて取得できません（{e}）"
+    print(f"note: {status} {why}")
+    prev = state.get("note", "ok")
+    if status != "ok" and prev == "ok":
+        state["note"] = status
+        state["note_since"] = now
+        with open(ALERT_FLAG, "w", encoding="utf-8") as f:
+            f.write(why + "\n")
+        try:
+            line(f"🔴 {why}\n→ サブPCのログ C:\\Users\\info\\sub-jobs\\logs\\futsukayoi-note-*.log と LINE の失敗通知を確認してください。")
+        except Exception as e:  # noqa: BLE001
+            print(f"::warning::LINE 通知失敗（GitHub の失敗メールで代替）: {e}")
+    elif status == "ok" and prev != "ok":
+        hours = (now - state.get("note_since", now)) // 3600
+        state["note"] = "ok"
+        state.pop("note_since", None)
+        line(f"✅ note（二日酔いラボ）の公開が再開しました（止まっていた時間 約{hours}時間）。")
+
+
 def main():
     now = int(time.time())
     if env("WAKE_ENABLED", False).lower() == "false":
@@ -132,6 +188,8 @@ def main():
     before = json.dumps(state, sort_keys=True)
 
     down = age > DOWN_AFTER
+    # PCの停止・復帰で state を作り直しても、note の監視状態は引き継ぐ（消えると復帰後に同じ停止を二重通知する）
+    keep = {k: v for k, v in state.items() if k.startswith("note")}
     print(f"最終心拍 {hhmm(last)}（{age // 60}分前） → {'DOWN' if down else 'UP'} / 前回 {state['status']}")
 
     if down:
@@ -149,8 +207,11 @@ def main():
         state = {"status": "up", "since": now}
         line(f"✅ デスクトップが復帰しました（止まっていた時間 約{mins}分）。")
 
+    for k, v in keep.items():
+        state.setdefault(k, v)
     if not down:
         check_outreach(state, now)
+        check_note(state, now)
 
     if json.dumps(state, sort_keys=True) != before:
         state["updated"] = now
