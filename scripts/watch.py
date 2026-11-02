@@ -116,25 +116,29 @@ def check_outreach(state, now):
 
 NOTE_USER = "futsukayoi_com"     # 二日酔いラボの note（サブPCの futsukayoi-note-daily が1日1本公開）
 NOTE_STALE_AFTER = 30 * 60 * 60  # 毎日19:00＋最大60分の揺らぎ。1回の取りこぼしは許し、2回目で鳴らす手前
+# 在庫が尽きた後は隔日配信（配信側 MIN_GAP が 44時間）＋新記事は月水金だけ＝金→月で72時間空く。
+# 直近2本の間隔が NOTE_STALE_AFTER を超えていたら隔日運転中とみなしてこちらで判定する
+NOTE_STALE_AFTER_ALTERNATE = 4 * 24 * 60 * 60
 NOTE_ERR_ALERT = 6               # 取得失敗がこの回数（=約30分）続いたら監視が効いていないとして鳴らす
 
 
 def note_latest_publish(user):
-    """note の最新公開時刻（UNIX秒）。公開記事が無ければ None。取得失敗は例外。"""
+    """note の (最新, その1本前) の公開時刻（UNIX秒）。無い方は None。取得失敗は例外。"""
     req = urllib.request.Request(f"https://note.com/api/v2/creators/{user}/contents?kind=note&page=1",
                                  headers={"User-Agent": "home-wake-watch/1.0"})
     with urllib.request.urlopen(req, timeout=15) as r:
         contents = json.load(r)["data"]["contents"]
-    times = [datetime.fromisoformat(c["publishAt"]).timestamp() for c in contents
-             if c.get("status") == "published" and c.get("publishAt")]
-    return int(max(times)) if times else None
+    times = sorted((int(datetime.fromisoformat(c["publishAt"]).timestamp()) for c in contents
+                    if c.get("status") == "published" and c.get("publishAt")), reverse=True)
+    return (times + [None, None])[0], (times + [None, None])[1]
 
 
-def judge_note(latest, now):
+def judge_note(latest, now, previous=None):
     """("ok"|"stall", 説明)。サブPCが落ちても・ログインが切れても・記事が尽きても、note に出ていなければ stall。"""
     if latest is None:
         return "stall", f"note（{NOTE_USER}）に公開記事がありません"
-    if now - latest > NOTE_STALE_AFTER:
+    alternate = previous is not None and latest - previous > NOTE_STALE_AFTER
+    if now - latest > (NOTE_STALE_AFTER_ALTERNATE if alternate else NOTE_STALE_AFTER):
         return "stall", f"note（二日酔いラボ）の最後の公開が {hhmm(latest)} で止まっています"
     return "ok", ""
 
@@ -143,9 +147,10 @@ def check_note(state, now, fetch=note_latest_publish):
     if env("NOTE_WATCH", False).lower() == "false":
         return
     try:
-        latest = fetch(NOTE_USER)
+        got = fetch(NOTE_USER)
+        latest, previous = got if isinstance(got, tuple) else (got, None)
         state.pop("note_err", None)
-        status, why = judge_note(latest, now)
+        status, why = judge_note(latest, now, previous)
     except Exception as e:  # noqa: BLE001 — 一時的な失敗では鳴らさない。続いたら監視の故障として鳴らす
         state["note_err"] = state.get("note_err", 0) + 1
         print(f"::warning::note の取得に失敗（{state['note_err']}回目）: {e}")

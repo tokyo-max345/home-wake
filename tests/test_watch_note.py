@@ -25,6 +25,31 @@ class JudgeNote(unittest.TestCase):
     def test_stall_when_no_posts(self):
         self.assertEqual(watch.judge_note(None, NOW)[0], "stall")
 
+    def test_alternate_pace_waits_four_days(self):
+        # 在庫切れ後の隔日配信（直近2本が48時間おき）なら、金→月の72時間空きでは鳴らさない
+        self.assertEqual(watch.judge_note(NOW - 72 * H, NOW, NOW - 120 * H)[0], "ok")
+        self.assertEqual(watch.judge_note(NOW - 97 * H, NOW, NOW - 145 * H)[0], "stall")
+
+    def test_daily_pace_keeps_30h(self):
+        # 毎日配信（直近2本が24時間おき）は従来どおり30時間で鳴らす
+        self.assertEqual(watch.judge_note(NOW - 31 * H, NOW, NOW - 55 * H)[0], "stall")
+
+
+class CheckNoteTuple(unittest.TestCase):
+    def test_tuple_fetch_uses_previous(self):
+        s = {}
+        orig = watch.line
+        watch.line = lambda t: None
+        d, cwd = tempfile.mkdtemp(), os.getcwd()
+        os.chdir(d)
+        try:
+            watch.check_note(s, NOW, fetch=lambda u: (NOW - 72 * H, NOW - 120 * H))
+            self.assertNotIn("note", s)
+            self.assertNotIn("note_err", s)  # 旧実装はタプルで例外→取得失敗扱いになっていた
+        finally:
+            watch.line = orig
+            os.chdir(cwd)
+
 
 class CheckNote(unittest.TestCase):
     def setUp(self):
