@@ -2,6 +2,12 @@
 
 ## セッションログ（2026-09-24 nightos/progress.md から移設・新しい順）
 
+### 2026-11-03 [note の見張りにナイトビジネスラボ(nightbiz_lab)を追加（nightos-hp の日次配信の「ここまでデバックして」で発見）] 完了 検証commit:e34edde 実測:https://github.com/tokyo-max345/home-wake/actions/runs/41512954721
+- 穴: watch.py は futsukayoi_com しか見ておらず、nightos-hp の nightbiz-note-daily（サブPC・毎日13:00＋最大60分）が止まっても誰も気づけなかった
+- NOTE_TARGETS に2件。二日酔いラボ=key note・30時間（従来どおり）／ナイトビジネスラボ=key note_nightbiz・36時間（1本目が 04:35 の手動公開で次の定時まで約33時間空くため）。隔日判定4日は共通
+- Codex 指摘: 同じ回に複数の異常が出ると alert.flag が後の1件で上書き → 追記に・workflow は1行ずつ ::error。2回目「指摘なし」
+- テスト 14+9 OK（新テストは旧実装で赤）。手動起動の本番1回: 両アカウント ok・success
+
 ### 2026-11-03 [note の見張りを隔日配信に追従させる（まこつ「一旦Dでそれ以降は隔日で」）] 完了 検証commit:7170399
 - 配信側（alcoburner）は在庫が一度尽きたら以降は44時間間隔＝隔日。watch.py は直近2本の間隔が30時間超なら閾値を4日に（ブログは月水金＝金→月で72時間空くため）。毎日配信中は30時間のまま
 - tests/test_watch_note.py 10件緑（旧 watch.py では3件赤）・outreach 9件緑。実測: 本番 note API で直近2本 23.6時間間隔→判定 ok
