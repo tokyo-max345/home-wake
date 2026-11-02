@@ -2,6 +2,11 @@
 
 ## セッションログ（2026-09-24 nightos/progress.md から移設・新しい順）
 
+### 2026-11-03 [note の見張りを隔日配信に追従させる（まこつ「一旦Dでそれ以降は隔日で」）] 完了 検証commit:7170399
+- 配信側（alcoburner）は在庫が一度尽きたら以降は44時間間隔＝隔日。watch.py は直近2本の間隔が30時間超なら閾値を4日に（ブログは月水金＝金→月で72時間空くため）。毎日配信中は30時間のまま
+- tests/test_watch_note.py 10件緑（旧 watch.py では3件赤）・outreach 9件緑。実測: 本番 note API で直近2本 23.6時間間隔→判定 ok
+- 割り切り（Codex 指摘）: 初めて在庫が尽きた時は直近2本が24時間間隔のままなので🔴が1回出る（配信側の「記事がありません」LINE と同時・次の公開で✅）／隔日中の見逃しは最大4日（配信失敗そのものはサブPCが毎回 LINE）
+
 ### 2026-10-31 [二日酔いラボ note の公開停止も外から見張る（alcoburner の note 日次配信再開に合わせて）] 完了 ✅ 検証commit:4a7880e 実測:run 41154004823「note: ok」
 - watch.py に check_note: note 公開API（futsukayoi_com の最新 publishAt）が30時間より古い／取得失敗6回連続 → LINE＋ジョブ赤。状態遷移時だけ・復帰で ✅。PC停止/復帰で state を作り直しても note* キーを引き継ぐ（Codex 指摘）。止める＝repo variable `NOTE_WATCH=false` 検証commit:4a7880e
 - 配信本体はサブPC タスク `futsukayoi-note-daily`（alcoburner `ops/subpc/futsukayoi-note/`）。サブPCごと止まっても・ログインが切れても・記事が尽きても note に出なくなる＝note だけ見れば全部拾える
