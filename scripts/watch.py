@@ -61,7 +61,7 @@ def line(text):
 
 
 OUTREACH_DOWN_AFTER = 2 * 60 * 60  # 営業ロボの応答が途絶えて「止まっている」とみなすまで
-ALERT_FLAG = "alert.flag"          # 新しく異常になった回だけ作る → 最後のステップがジョブを赤くする（GitHub の失敗メール）
+ALERT_FLAG = "alert.flag"          # 新しく異常になった回だけ作る（追記＝同じ回の複数の異常を全部残す） → 最後のステップがジョブを赤くする（GitHub の失敗メール）
 
 
 def judge_outreach(seen, now):
@@ -99,7 +99,7 @@ def check_outreach(state, now):
         state["outreach"] = status
         state["outreach_since"] = now
         # 先に旗を立てる: LINE が枠切れ(429)でも GitHub の失敗メールで必ず届く
-        with open(ALERT_FLAG, "w", encoding="utf-8") as f:
+        with open(ALERT_FLAG, "a", encoding="utf-8") as f:
             f.write(why + "\n")
         try:
             line(f"🔴 {why}\n→ 送信PCで docker と crawler のログを確認してください。")
@@ -116,6 +116,13 @@ def check_outreach(state, now):
 
 NOTE_USER = "futsukayoi_com"     # 二日酔いラボの note（サブPCの futsukayoi-note-daily が1日1本公開）
 NOTE_STALE_AFTER = 30 * 60 * 60  # 毎日19:00＋最大60分の揺らぎ。1回の取りこぼしは許し、2回目で鳴らす手前
+# 見張る note。key は state のキーの頭（"note" で始めること＝main が PC 停止・復帰をまたいで引き継ぐ）
+NOTE_TARGETS = [
+    {"user": NOTE_USER, "label": "二日酔いラボ", "key": "note", "stale": NOTE_STALE_AFTER, "log": "futsukayoi-note"},
+    # nightos-hp の nightbiz-note-daily（毎日13:00＋最大60分）。11-03 の1本目が 04:35 の手動公開で、
+    # 次の定時まで約33時間空く＝30時間だと初日に誤報。1回取りこぼせば 48時間超になるので36時間で十分鳴る
+    {"user": "nightbiz_lab", "label": "ナイトビジネスラボ", "key": "note_nightbiz", "stale": 36 * 60 * 60, "log": "nightbiz-note"},
+]
 # 在庫が尽きた後は隔日配信（配信側 MIN_GAP が 44時間）＋新記事は月水金だけ＝金→月で72時間空く。
 # 直近2本の間隔が NOTE_STALE_AFTER を超えていたら隔日運転中とみなしてこちらで判定する
 NOTE_STALE_AFTER_ALTERNATE = 4 * 24 * 60 * 60
@@ -133,46 +140,49 @@ def note_latest_publish(user):
     return (times + [None, None])[0], (times + [None, None])[1]
 
 
-def judge_note(latest, now, previous=None):
+def judge_note(latest, now, previous=None, target=NOTE_TARGETS[0]):
     """("ok"|"stall", 説明)。サブPCが落ちても・ログインが切れても・記事が尽きても、note に出ていなければ stall。"""
     if latest is None:
-        return "stall", f"note（{NOTE_USER}）に公開記事がありません"
-    alternate = previous is not None and latest - previous > NOTE_STALE_AFTER
-    if now - latest > (NOTE_STALE_AFTER_ALTERNATE if alternate else NOTE_STALE_AFTER):
-        return "stall", f"note（二日酔いラボ）の最後の公開が {hhmm(latest)} で止まっています"
+        return "stall", f"note（{target['user']}）に公開記事がありません"
+    stale = target["stale"]
+    alternate = previous is not None and latest - previous > stale
+    if now - latest > (NOTE_STALE_AFTER_ALTERNATE if alternate else stale):
+        return "stall", f"note（{target['label']}）の最後の公開が {hhmm(latest)} で止まっています"
     return "ok", ""
 
 
-def check_note(state, now, fetch=note_latest_publish):
+def check_note(state, now, target=NOTE_TARGETS[0], fetch=note_latest_publish):
+    # ⚠ 引数の順は fetch を最後に（テストが __defaults__ の末尾で fetch を差し替える）
     if env("NOTE_WATCH", False).lower() == "false":
         return
+    k, label = target["key"], target["label"]
     try:
-        got = fetch(NOTE_USER)
+        got = fetch(target["user"])
         latest, previous = got if isinstance(got, tuple) else (got, None)
-        state.pop("note_err", None)
-        status, why = judge_note(latest, now, previous)
+        state.pop(f"{k}_err", None)
+        status, why = judge_note(latest, now, previous, target)
     except Exception as e:  # noqa: BLE001 — 一時的な失敗では鳴らさない。続いたら監視の故障として鳴らす
-        state["note_err"] = state.get("note_err", 0) + 1
-        print(f"::warning::note の取得に失敗（{state['note_err']}回目）: {e}")
-        if state["note_err"] < NOTE_ERR_ALERT:
+        state[f"{k}_err"] = state.get(f"{k}_err", 0) + 1
+        print(f"::warning::note（{label}）の取得に失敗（{state[f'{k}_err']}回目）: {e}")
+        if state[f"{k}_err"] < NOTE_ERR_ALERT:
             return
-        status, why = "stall", f"note の公開状況を {state['note_err']} 回続けて取得できません（{e}）"
-    print(f"note: {status} {why}")
-    prev = state.get("note", "ok")
+        status, why = "stall", f"note（{label}）の公開状況を {state[f'{k}_err']} 回続けて取得できません（{e}）"
+    print(f"note[{label}]: {status} {why}")
+    prev = state.get(k, "ok")
     if status != "ok" and prev == "ok":
-        state["note"] = status
-        state["note_since"] = now
-        with open(ALERT_FLAG, "w", encoding="utf-8") as f:
+        state[k] = status
+        state[f"{k}_since"] = now
+        with open(ALERT_FLAG, "a", encoding="utf-8") as f:
             f.write(why + "\n")
         try:
-            line(f"🔴 {why}\n→ サブPCのログ C:\\Users\\info\\sub-jobs\\logs\\futsukayoi-note-*.log と LINE の失敗通知を確認してください。")
+            line(f"🔴 {why}\n→ サブPCのログ C:\\Users\\info\\sub-jobs\\logs\\{target['log']}-*.log と LINE の失敗通知を確認してください。")
         except Exception as e:  # noqa: BLE001
             print(f"::warning::LINE 通知失敗（GitHub の失敗メールで代替）: {e}")
     elif status == "ok" and prev != "ok":
-        hours = (now - state.get("note_since", now)) // 3600
-        state["note"] = "ok"
-        state.pop("note_since", None)
-        line(f"✅ note（二日酔いラボ）の公開が再開しました（止まっていた時間 約{hours}時間）。")
+        hours = (now - state.get(f"{k}_since", now)) // 3600
+        state[k] = "ok"
+        state.pop(f"{k}_since", None)
+        line(f"✅ note（{label}）の公開が再開しました（止まっていた時間 約{hours}時間）。")
 
 
 def main():
@@ -216,7 +226,8 @@ def main():
         state.setdefault(k, v)
     if not down:
         check_outreach(state, now)
-        check_note(state, now)
+        for t in NOTE_TARGETS:
+            check_note(state, now, t)
 
     if json.dumps(state, sort_keys=True) != before:
         state["updated"] = now

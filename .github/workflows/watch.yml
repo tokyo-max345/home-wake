@@ -42,4 +42,5 @@ jobs:
           fi
       - name: fail on new outreach/note alert (GitHub emails the failure = channel independent of LINE)
         run: |
-          if [ -f alert.flag ]; then echo "::error::$(cat alert.flag)"; exit 1; fi
+          # 同じ回に複数の異常が出ると1行ずつ追記される → 1行ごとに ::error を出す（::error は1行目しか見せない）
+          if [ -f alert.flag ]; then while IFS= read -r l; do [ -n "$l" ] && echo "::error::$l"; done < alert.flag; exit 1; fi

@@ -138,7 +138,66 @@ class MainKeepsNoteState(unittest.TestCase):
         self.assertEqual((s["status"], s.get("note")), ("down", "stall"))
         s = self.run_main(60)
         self.assertEqual((s["status"], s.get("note")), ("up", "stall"))
-        self.assertEqual(len([m for m in self.sent if "note" in m and "🔴" in m]), 1)
+        # 見張る note は NOTE_TARGETS の数だけ。どれも40時間止まり＝アカウントごとに1回ずつ（二重通知なし）
+        self.assertEqual(len([m for m in self.sent if "note" in m and "🔴" in m]), len(watch.NOTE_TARGETS))
+        self.assertEqual(s.get("note_nightbiz"), "stall")
+
+
+class NightbizTarget(unittest.TestCase):
+    """ナイトビジネスラボ（nightbiz_lab）を2つ目の見張り先として足した（11-03）。旧実装は futsukayoi_com しか見ていなかった。"""
+    T = next(t for t in watch.NOTE_TARGETS if t["user"] == "nightbiz_lab")
+
+    def setUp(self):
+        self.dir, self.cwd = tempfile.mkdtemp(), os.getcwd()
+        os.chdir(self.dir)
+        self.sent, self.orig_line, self.orig_env = [], watch.line, dict(os.environ)
+        watch.line = lambda t: self.sent.append(t)
+        os.environ.pop("NOTE_WATCH", None)
+
+    def tearDown(self):
+        watch.line = self.orig_line
+        os.environ.clear()
+        os.environ.update(self.orig_env)
+        os.chdir(self.cwd)
+
+    def test_36h_threshold(self):
+        # 1本目（手動 04:35）→次の定時（翌日13〜14時）の約33時間では鳴らさない・1回取りこぼしたら鳴る
+        self.assertEqual(watch.judge_note(NOW - 33 * H, NOW, None, self.T)[0], "ok")
+        self.assertEqual(watch.judge_note(NOW - 37 * H, NOW, NOW - 61 * H, self.T)[0], "stall")
+        # 二日酔いラボの30時間は変えない
+        self.assertEqual(watch.judge_note(NOW - 31 * H, NOW)[0], "stall")
+
+    def test_separate_state_and_message(self):
+        s = {}
+        asked = []
+        def fetch(u):
+            asked.append(u)
+            return NOW - 40 * H
+        watch.check_note(s, NOW, self.T, fetch=fetch)
+        self.assertEqual(asked, ["nightbiz_lab"])
+        self.assertEqual(s.get("note_nightbiz"), "stall")
+        self.assertNotIn("note", s)               # 二日酔いラボの状態に混ざらない
+        self.assertIn("ナイトビジネスラボ", self.sent[0])
+        self.assertIn("nightbiz-note-*.log", self.sent[0])
+        # 取得失敗の回数も別に数える
+        def boom(u):
+            raise OSError("x")
+        watch.check_note(s, NOW, self.T, fetch=boom)
+        self.assertEqual((s.get("note_nightbiz_err"), s.get("note_err")), (1, None))
+
+    def test_two_alerts_same_run_both_kept_in_flag(self):
+        # 同じ回に2アカウントとも止まったら、失敗メールに載る旗に2件とも残る（旧実装は後の1件で上書き＝Codex 11-03 指摘）
+        s = {}
+        for t in watch.NOTE_TARGETS:
+            watch.check_note(s, NOW, t, fetch=lambda u: NOW - 100 * H)
+        with open(watch.ALERT_FLAG, encoding="utf-8") as f:
+            lines = [l for l in f.read().splitlines() if l]
+        self.assertEqual(len(lines), len(watch.NOTE_TARGETS))
+        self.assertTrue(any("二日酔いラボ" in l for l in lines) and any("ナイトビジネスラボ" in l for l in lines))
+
+    def test_keys_survive_pc_restart(self):
+        # main は "note" で始まるキーだけを PC 停止・復帰をまたいで引き継ぐ
+        self.assertTrue(all(t["key"].startswith("note") for t in watch.NOTE_TARGETS))
 
 
 if __name__ == "__main__":
