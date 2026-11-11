@@ -1,9 +1,11 @@
 {
  "status": "up",
  "since": 1790331483,
- "updated": 1794168846,
+ "updated": 1794421638,
  "outreach": "ok",
  "note": "ok",
  "note_nightbiz": "stall",
- "note_nightbiz_since": 1794168846
+ "note_nightbiz_since": 1794168846,
+ "note_err": 1,
+ "note_nightbiz_err": 1
 }
